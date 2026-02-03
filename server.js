@@ -68,6 +68,7 @@ function crearTabla() {
         CREATE TABLE IF NOT EXISTS denuncias (
             id TEXT PRIMARY KEY,
             tipo TEXT NOT NULL,
+            tipoIncidente TEXT NOT NULL,
             fecha TEXT NOT NULL,
             fechaRegistro TEXT NOT NULL,
             ubicacion TEXT NOT NULL,
@@ -83,6 +84,8 @@ function crearTabla() {
             console.error('Error al crear la tabla de denuncias:', err.message);
         } else {
             console.log('✅ Tabla de denuncias lista');
+            // Migración simple: agregar columnas nuevas si faltan (para proyectos ya existentes)
+            asegurarColumna('denuncias', 'tipoIncidente', 'TEXT');
         }
     });
     
@@ -107,11 +110,30 @@ function crearTabla() {
     });
 }
 
+function asegurarColumna(tabla, columna, tipoSql) {
+    db.all(`PRAGMA table_info(${tabla})`, [], (err, columns) => {
+        if (err) {
+            console.error(`Error al leer estructura de ${tabla}:`, err.message);
+            return;
+        }
+        const existe = Array.isArray(columns) && columns.some(c => c && c.name === columna);
+        if (existe) return;
+
+        db.run(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipoSql}`, (alterErr) => {
+            if (alterErr) {
+                console.error(`Error al agregar columna ${columna} en ${tabla}:`, alterErr.message);
+            } else {
+                console.log(`✅ Columna agregada: ${tabla}.${columna}`);
+            }
+        });
+    });
+}
+
 // Endpoint para guardar una denuncia
 app.post('/api/denuncias', upload.array('evidencia', 10), (req, res) => {
-    const { id, tipo, fecha, fechaRegistro, ubicacion, descripcion, personas, testigos } = req.body;
+    const { id, tipo, tipoIncidente, fecha, fechaRegistro, ubicacion, descripcion, personas, testigos } = req.body;
     
-    if (!id || !tipo || !fecha || !ubicacion || !descripcion) {
+    if (!id || !tipo || !tipoIncidente || !fecha || !ubicacion || !descripcion) {
         return res.status(400).json({ 
             success: false, 
             message: 'Faltan campos requeridos' 
@@ -130,11 +152,25 @@ app.post('/api/denuncias', upload.array('evidencia', 10), (req, res) => {
     }
     
     const query = `
-        INSERT INTO denuncias (id, tipo, fecha, fechaRegistro, ubicacion, descripcion, personas, testigos, evidencia)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO denuncias (id, tipo, tipoIncidente, fecha, fechaRegistro, ubicacion, descripcion, personas, testigos, evidencia)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
-    db.run(query, [id, tipo, fecha, fechaRegistro, ubicacion, descripcion, personas || 'No especificado', testigos || 'No especificado', archivosInfo], (err) => {
+    db.run(
+        query,
+        [
+            id,
+            tipo,
+            tipoIncidente,
+            fecha,
+            fechaRegistro,
+            ubicacion,
+            descripcion,
+            personas || 'No especificado',
+            testigos || 'No especificado',
+            archivosInfo
+        ],
+        (err) => {
         if (err) {
             console.error('Error al guardar denuncia:', err.message);
             // Si hay error, eliminar archivos subidos
